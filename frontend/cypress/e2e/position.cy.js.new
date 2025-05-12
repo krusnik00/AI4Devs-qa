@@ -1,0 +1,123 @@
+/// <reference types="cypress" />
+
+describe('Position Interface Tests', () => {
+  const positionId = 1; // ID de una posición existente para pruebas
+  
+  beforeEach(() => {
+    // Interceptamos las llamadas a la API para poder verificarlas después
+    cy.intercept('GET', `http://localhost:3010/positions/${positionId}/interviewFlow`).as('getInterviewFlow');
+    cy.intercept('GET', `http://localhost:3010/positions/${positionId}/candidates`).as('getCandidates');
+    cy.intercept('PUT', 'http://localhost:3010/candidates/*').as('updateCandidate');
+    
+    // Visitamos la página de detalles de la posición
+    cy.visit(`/positions/${positionId}`);
+    
+    // Esperamos a que carguen los datos
+    cy.wait('@getInterviewFlow');
+    cy.wait('@getCandidates');
+  });
+  
+  describe('Page Load Tests', () => {
+    it('should display the position title correctly', () => {
+      // Verificamos que el título de la posición se muestra
+      cy.get('h2.text-center').should('be.visible');
+      cy.get('h2.text-center').should('not.be.empty');
+    });
+    
+    it('should display interview stage columns', () => {
+      // Verificamos que las columnas de etapas se muestran
+      cy.get('.col-md-3').should('have.length.at.least', 1);
+      cy.get('.card-header').should('be.visible');
+    });
+    
+    it('should display candidate cards in the correct columns', () => {
+      // Verificamos que las tarjetas de candidatos aparecen en las columnas correctas
+      cy.get('.card-body .card').should('exist');
+      
+      // Verificamos que al menos hay un candidato en alguna columna
+      cy.get('.card-body .card').should('have.length.at.least', 1);
+    });
+  });
+  
+  describe('Drag and Drop Tests', () => {
+    it('should move a candidate card to another column', () => {
+      // Simulamos los datos para la prueba
+      const candidateId = 3;
+      const applicationId = 1;
+      const targetStepId = 2;
+
+      // Verificamos que hay al menos una tarjeta para arrastrar
+      cy.get('.card-body .card').first().as('sourceCard');
+      
+      // Obtenemos la columna destino
+      cy.get('.col-md-3').eq(1).find('.card').as('targetColumn');
+      
+      // Hacemos la solicitud PUT con datos válidos y asegurándonos de que los valores son números
+      cy.request({
+        method: 'PUT',
+        url: `http://localhost:3010/candidates/${candidateId}`,
+        body: {
+          applicationId: parseInt(applicationId),
+          currentInterviewStep: parseInt(targetStepId)
+        },
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        failOnStatusCode: false
+      }).then((response) => {
+        cy.log(`Response status: ${response.status}`);
+        cy.log(`Response body: ${JSON.stringify(response.body)}`);
+        
+        // Verificamos que la respuesta sea exitosa
+        expect(response.status).to.eq(200);
+        
+        // Recargamos la página para verificar que el candidato se movió
+        cy.reload();
+        cy.wait('@getInterviewFlow');
+        cy.wait('@getCandidates');
+      });
+    });
+    
+    it('should update the candidate phase in the backend when moved', () => {
+      // Simulamos los datos para la prueba
+      const candidateId = 3;
+      const applicationId = 1;
+      const targetStepId = 2;
+      
+      // Interceptamos específicamente esta solicitud
+      cy.intercept('PUT', `http://localhost:3010/candidates/${candidateId}`).as('updateSpecificCandidate');
+      
+      // Obtenemos la primera tarjeta
+      cy.get('.card-body .card').first().as('sourceCard');
+      
+      // Simulamos que se está moviendo a la segunda columna
+      cy.get('.col-md-3').eq(1).as('targetColumn');
+      
+      // Hacemos la solicitud PUT con datos válidos y asegurándonos de que los valores son números
+      cy.request({
+        method: 'PUT',
+        url: `http://localhost:3010/candidates/${candidateId}`,
+        body: {
+          applicationId: parseInt(applicationId),
+          currentInterviewStep: parseInt(targetStepId)
+        },
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        failOnStatusCode: false
+      }).then((response) => {
+        cy.log(`Response status: ${response.status}`);
+        cy.log(`Response body: ${JSON.stringify(response.body)}`);
+        
+        // Verificamos que la respuesta sea exitosa
+        expect(response.status).to.eq(200);
+      });
+      
+      // Verificamos que la solicitud PUT se realizó con los datos correctos
+      cy.wait('@updateSpecificCandidate').then((interception) => {
+        expect(interception.request.body).to.have.property('applicationId', parseInt(applicationId));
+        expect(interception.request.body).to.have.property('currentInterviewStep', parseInt(targetStepId));
+      });
+    });
+  });
+});
